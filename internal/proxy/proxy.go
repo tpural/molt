@@ -51,6 +51,9 @@ func New(cfg Config, log logr.Logger) (*Proxy, error) {
 	c.Forwarding.Mode = config.VelocityForwardingMode
 	c.Forwarding.VelocitySecret = cfg.Secret
 	c.FailoverOnUnexpectedServerDisconnect = false
+	// A server that just took over may be slow to log players in: give it time
+	// rather than drop them.
+	c.ConnectionTimeout = configutil.Duration(30 * time.Second)
 	if cfg.Motd != "" {
 		c.Status.Motd = &configutil.Component{Value: &component.Text{Content: cfg.Motd}}
 	}
