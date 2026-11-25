@@ -132,6 +132,15 @@ func offlineUUID(name string) string {
 	return x[:8] + "-" + x[8:12] + "-" + x[12:16] + "-" + x[16:20] + "-" + x[20:]
 }
 
+func until(t *testing.T, what string, ok func() bool) {
+	t.Helper()
+	for deadline := time.Now().Add(10 * time.Minute); !ok(); time.Sleep(200 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("waited 10 minutes for %s", what)
+		}
+	}
+}
+
 func freePort(t *testing.T) string {
 	t.Helper()
 	l, err := net.Listen("tcp", "127.0.0.1:0")
@@ -215,14 +224,15 @@ func TestSwapWhilePlaying(t *testing.T) {
 	if err := c.Begin(ctx, next); err != nil {
 		t.Fatal(err)
 	}
-	for c.Status().Swapping != "start" {
-		time.Sleep(200 * time.Millisecond)
-	}
+	until(t, "the new server to start", func() bool {
+		if st := c.Status(); st.Swapping == "" && st.Last != nil && st.Last.Error != "" {
+			t.Fatalf("swap: %s", st.Last.Error)
+		}
+		return c.Status().Swapping == "start"
+	})
 	want := b.do("change")
 	changed := time.Now()
-	for c.Status().Swapping != "" {
-		time.Sleep(200 * time.Millisecond)
-	}
+	until(t, "the swap to finish", func() bool { return c.Status().Swapping == "" })
 	r := c.Status().Last
 	t.Logf("swap: %+v", *r)
 	if r.Error != "" || r.Moved != 1 {

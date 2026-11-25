@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -40,6 +41,10 @@ func (d *Docker) Start(ctx context.Context, gen int, dir string, spec Spec) (Bac
 	}
 	if d.Network != "" {
 		args = append(args, "--network", d.Network)
+	}
+	// The server runs as whoever owns its directory: us.
+	if _, ok := spec.Env["UID"]; !ok {
+		args = append(args, "-e", "UID="+strconv.Itoa(os.Getuid()), "-e", "GID="+strconv.Itoa(os.Getgid()))
 	}
 	for _, e := range env(spec) {
 		args = append(args, "-e", e)
