@@ -52,6 +52,7 @@ type event struct {
 	Pig     bool      `json:"pig"`
 	Pigs    int       `json:"pigs"`
 	Left    int       `json:"left"`
+	Joins   int       `json:"joins"`
 	ID      int       `json:"id"`
 	Marks   []string  `json:"marks"`
 	Time    int64     `json:"time"`
@@ -318,6 +319,9 @@ func TestSwapWhilePlaying(t *testing.T) {
 	}
 	if got.ID != before.ID {
 		t.Errorf("entity ID %d, was %d", got.ID, before.ID)
+	}
+	if got.Joins != before.Joins {
+		t.Errorf("the swap was announced: %d join and leave messages, %d before", got.Joins, before.Joins)
 	}
 	if got.Pigs > 1 {
 		t.Errorf("the client sees %d named pigs", got.Pigs)

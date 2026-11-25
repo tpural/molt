@@ -25,7 +25,11 @@ bot._client.on('packet', (_, meta) => {
 })
 bot.on('end', (why) => { say('end', { why: String(why) }); process.exit(1) })
 bot.on('kicked', (why) => say('kicked', { why: JSON.stringify(why) }))
-bot.on('messagestr', (m) => say('chat', { why: m }))
+let joins = 0
+bot.on('messagestr', (m) => {
+  if (m.includes('joined the game') || m.includes('left the game')) joins++
+  say('chat', { why: m })
+})
 bot.on('error', (err) => say('error', { why: String(err) }))
 
 const at = (dx, dy, dz) => bot.entity.position.floored().offset(dx, dy, dz)
@@ -97,6 +101,7 @@ function check () {
     pig: Boolean(pig),
     pigs: pigs.length,
     left,
+    joins,
     id: bot.entity.id,
     time: bot.time.timeOfDay
   }

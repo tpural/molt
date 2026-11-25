@@ -27,6 +27,7 @@ import org.bukkit.event.player.PlayerCommandPreprocessEvent;
 import org.bukkit.event.player.PlayerDropItemEvent;
 import org.bukkit.event.player.PlayerInteractEntityEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.plugin.Plugin;
 
 /** The hand-off: this server's role, and what each step does to it. */
@@ -440,6 +441,14 @@ final class Handoff implements Listener {
     @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
     public void onHit(EntityDamageByEntityEvent e) {
         stop(e);
+    }
+
+    /** Players handed off to the next server haven't left: nobody's told they did. */
+    @EventHandler(priority = EventPriority.HIGHEST)
+    public void onQuit(PlayerQuitEvent e) {
+        if (handing()) {
+            e.quitMessage(null);
+        }
     }
 
     /** Only a leader takes players: anyone else's world isn't the real one yet. */
