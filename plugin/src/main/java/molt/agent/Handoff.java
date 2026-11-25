@@ -7,7 +7,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
-import ca.spottedleaf.moonrise.patches.chunk_system.io.MoonriseRegionFileIO;
 import net.minecraft.server.MinecraftServer;
 import org.bukkit.Bukkit;
 import org.bukkit.Chunk;
@@ -148,23 +147,18 @@ final class Handoff implements Listener {
     }
 
     /**
-     * Stop saving and get everything on disk, so it can be copied. Players are
-     * still playing: the main thread only starts the save, and the wait for
-     * the writes happens here.
+     * Stop saving and get everything on disk, so it can be copied. It's all on
+     * the main thread: saving without waiting there, and waiting for the
+     * writes elsewhere, lost entities from the world.
      */
     void snapshotBegin() throws Exception {
         need(Role.leader);
-        long[] main = new long[1];
         long t0 = System.nanoTime();
         sync(() -> {
-            long t = System.nanoTime();
             autosave(false);
-            server().saveEverything(true, false, true);
-            main[0] = System.nanoTime() - t;
+            saveAll();
         });
-        MoonriseRegionFileIO.flush(server());
-        plugin.getLogger().info(String.format("saved for a copy: %dms on the main thread, %dms in all",
-                main[0] / 1_000_000, (System.nanoTime() - t0) / 1_000_000));
+        plugin.getLogger().info(String.format("saved for a copy in %dms", (System.nanoTime() - t0) / 1_000_000));
     }
 
     void snapshotEnd() throws Exception {
