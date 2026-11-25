@@ -39,7 +39,8 @@ type Proxy interface {
 	Serve(b runner.Backend) error
 	Hold()
 	Release()
-	Move(ctx context.Context) (moved int, failed []string)
+	// Move moves players to the active backend, seamlessly if it may.
+	Move(ctx context.Context, seamless bool) (moved, smooth int, failed []string)
 	Disconnect(b runner.Backend, why string) int
 	Drop(b runner.Backend)
 }
@@ -107,7 +108,9 @@ type Report struct {
 	Steps   []Step        `json:"steps"`
 	Freeze  time.Duration `json:"freeze"`
 	Moved   int           `json:"moved"`
-	Failed  []string      `json:"failed,omitempty"`
+	// Seamless are the players moved without a loading screen.
+	Seamless int      `json:"seamless"`
+	Failed   []string `json:"failed,omitempty"`
 	// Presynced are the files copied while the new backend waited; Synced
 	// and Removed those the freeze copied over, and removed.
 	Presynced int    `json:"presynced"`
@@ -293,7 +296,7 @@ func (c *Conductor) run(ctx context.Context, spec runner.Spec) (r Report, err er
 		c.mu.Lock()
 		c.status.Last = &r
 		c.mu.Unlock()
-		c.Log.Info("swap", "from", r.From, "to", r.To, "freeze", r.Freeze, "moved", r.Moved, "failed", len(r.Failed), "err", r.Error)
+		c.Log.Info("swap", "from", r.From, "to", r.To, "freeze", r.Freeze, "moved", r.Moved, "seamless", r.Seamless, "failed", len(r.Failed), "err", r.Error)
 	}()
 	step := func(name string, f func() error) error {
 		c.setSwapping(name)
@@ -393,17 +396,19 @@ func (c *Conductor) run(ctx context.Context, spec runner.Spec) (r Report, err er
 		err = step("takeover", func() error { return c.Agent(b).Takeover(ctx, f) })
 	}
 	if err == nil {
+		var seamless bool
 		_ = step("handoff", func() error {
-			c.handoff(ctx, ag, c.Agent(b))
+			seamless = c.handoff(ctx, ag, c.Agent(b), f)
 			return nil
 		})
 		c.Proxy.Hold()
 		if err = c.Proxy.Serve(b); err == nil {
 			_ = step("move", func() error {
 				for try := 0; try < 3; try++ {
-					var moved int
-					moved, r.Failed = c.Proxy.Move(ctx)
+					moved, smooth, failed := c.Proxy.Move(ctx, seamless)
 					r.Moved += moved
+					r.Seamless += smooth
+					r.Failed = failed
 					if len(r.Failed) == 0 {
 						break
 					}
@@ -450,8 +455,9 @@ func (c *Conductor) run(ctx context.Context, spec runner.Spec) (r Report, err er
 
 // handoff passes what players did while the old backend was frozen, and where
 // they are now, to the new one. Without it (an older molt-agent on either)
-// they arrive where they were when it froze.
-func (c *Conductor) handoff(ctx context.Context, from, to Agent) {
+// they arrive where they were when it froze. It says if players can move
+// seamlessly: both molt-agents keep their clients' view of the world right.
+func (c *Conductor) handoff(ctx context.Context, from, to Agent, f agent.Freeze) bool {
 	h, err := from.Handoff(ctx)
 	if err == nil {
 		err = to.Arrive(ctx, h)
@@ -459,7 +465,11 @@ func (c *Conductor) handoff(ctx context.Context, from, to Agent) {
 	switch {
 	case errors.Is(err, agent.ErrUnsupported):
 		c.Log.Info("players arrive where they froze: a backend's molt-agent can't hand off")
+		return false
 	case err != nil:
 		c.Log.Warn("players arrive where they froze", "err", err)
+		return false
 	}
+	st, err := to.State(ctx)
+	return err == nil && st.Seamless && f.Counter > 0
 }

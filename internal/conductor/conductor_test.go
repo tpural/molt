@@ -137,12 +137,15 @@ func (p fakeProxy) Disconnect(b runner.Backend, _ string) int {
 	return 0
 }
 
-func (p fakeProxy) Move(context.Context) (int, []string) {
+func (p fakeProxy) Move(_ context.Context, seamless bool) (int, int, []string) {
 	_ = p.w.log("move")
 	if p.w.moveFail {
-		return 0, []string{"tim: no"}
+		return 0, 0, []string{"tim: no"}
 	}
-	return 1, nil
+	if seamless {
+		return 1, 1, nil
+	}
+	return 1, 0, nil
 }
 
 func setup(t *testing.T) (*Conductor, *world) {

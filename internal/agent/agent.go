@@ -24,6 +24,9 @@ type State struct {
 	// Version is the server's Minecraft and Paper version.
 	Version string   `json:"version"`
 	Plugins []string `json:"plugins"`
+	// Seamless is a molt-agent that can take players without their clients
+	// noticing: it keeps their entity IDs.
+	Seamless bool `json:"seamless"`
 	// Folders are the worlds' folders, relative to the server's directory.
 	Folders []string `json:"folders"`
 }
@@ -36,6 +39,8 @@ type Player struct {
 	X     float64 `json:"x"`
 	Y     float64 `json:"y"`
 	Z     float64 `json:"z"`
+	// EntityID is the player's entity ID, which the next leader keeps.
+	EntityID int `json:"entityId"`
 }
 
 // World is what a world keeps in memory that a follower read at start, and
@@ -55,6 +60,9 @@ type Freeze struct {
 	Players []Player `json:"players"`
 	Worlds  []World  `json:"worlds"`
 	Folders []string `json:"folders"`
+	// Counter is the next entity ID the leader would give out: the next one
+	// numbers its entities above it.
+	Counter int `json:"counter"`
 }
 
 // ErrUnsupported is a call an older molt-agent doesn't have.

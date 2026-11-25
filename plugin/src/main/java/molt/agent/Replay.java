@@ -32,7 +32,7 @@ final class Replay implements Listener {
     record Action(String kind, String world, int x, int y, int z, String block, String hand, String command) {}
 
     record Arrival(String uuid, String world, double x, double y, double z, float yaw, float pitch,
-                   List<Action> actions) {}
+                   int entityId, List<Action> actions) {}
 
     record Handover(List<Arrival> players) {}
 
@@ -80,7 +80,7 @@ final class Replay implements Listener {
             List<Action> did = done.getOrDefault(p.getUniqueId(), List.of());
             synchronized (did) {
                 out.add(new Arrival(p.getUniqueId().toString(), l.getWorld().getName(), l.getX(), l.getY(), l.getZ(),
-                        l.getYaw(), l.getPitch(), List.copyOf(did)));
+                        l.getYaw(), l.getPitch(), p.getEntityId(), List.copyOf(did)));
             }
         }
         return new Handover(out);
@@ -109,6 +109,16 @@ final class Replay implements Listener {
         World w = a == null ? null : Bukkit.getWorld(a.world());
         if (w != null) {
             e.setSpawnLocation(new Location(w, a.x(), a.y(), a.z(), a.yaw(), a.pitch()));
+        }
+    }
+
+    /** A player keeps its entity ID: its client may never learn of a new one. */
+    @SuppressWarnings("deprecation") // the only event with the player before it's in the world
+    @EventHandler(priority = EventPriority.LOWEST)
+    public void onPlace(org.spigotmc.event.player.PlayerSpawnLocationEvent e) {
+        Arrival a = arrival(e.getPlayer().getUniqueId(), false);
+        if (a != null && a.entityId() > 0) {
+            Clients.keepId(e.getPlayer(), a.entityId());
         }
     }
 
