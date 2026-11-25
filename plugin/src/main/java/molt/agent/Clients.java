@@ -31,20 +31,24 @@ final class Clients {
     private static final AtomicInteger COUNTER;
 
     static {
+        // Entity has it up to 26.1, ServerLevel from 26.3.
         AtomicInteger found = null;
-        for (Field f : net.minecraft.world.entity.Entity.class.getDeclaredFields()) {
-            if (Modifier.isStatic(f.getModifiers()) && f.getType() == AtomicInteger.class) {
-                try {
+        for (Class<?> c : List.of(net.minecraft.server.level.ServerLevel.class, net.minecraft.world.entity.Entity.class)) {
+            try {
+                Field f = c.getDeclaredField("ENTITY_COUNTER");
+                if (Modifier.isStatic(f.getModifiers()) && f.getType() == AtomicInteger.class) {
                     f.setAccessible(true);
                     found = (AtomicInteger) f.get(null);
-                } catch (IllegalAccessException e) {
-                    throw new ExceptionInInitializerError(e);
+                    break;
                 }
-                break;
+            } catch (NoSuchFieldException e) {
+                // the other one
+            } catch (IllegalAccessException e) {
+                throw new ExceptionInInitializerError(e);
             }
         }
         if (found == null) {
-            throw new ExceptionInInitializerError("no entity counter on Entity");
+            throw new ExceptionInInitializerError("no entity counter on ServerLevel or Entity");
         }
         COUNTER = found;
     }
