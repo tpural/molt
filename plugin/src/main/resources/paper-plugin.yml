@@ -1,0 +1,5 @@
+name: molt-agent
+version: "${version}"
+main: molt.agent.MoltAgent
+api-version: "26.1"
+description: Lets molt hand a running world from one server to the next.

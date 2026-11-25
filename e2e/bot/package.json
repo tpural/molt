@@ -1,0 +1,8 @@
+{
+  "name": "molt-e2e-bot",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "mineflayer": "4.39.0"
+  }
+}

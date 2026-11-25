@@ -1,0 +1,13 @@
+# molt's configuration. Secrets come from the environment: MOLT_SECRET,
+# MOLT_AGENT_TOKEN and MOLT_API_TOKEN.
+motd: A server that updates without restarting
+root: /var/lib/molt
+runner: kubernetes
+kubernetes:
+  memory: 4Gi
+# The first backend; swaps change it from there.
+spec:
+  image: ghcr.io/tpural/molt-paper:0.1.0
+  env:
+    VERSION: "26.3"
+    MEMORY: 3G
