@@ -159,6 +159,16 @@ func until(t *testing.T, what string, ok func() bool) {
 	}
 }
 
+// agentLog shows what molt-agent logged: how its steps went.
+func agentLog(t *testing.T, who, logs string) {
+	t.Helper()
+	for line := range strings.Lines(logs) {
+		if strings.Contains(line, "[molt-agent]") && !strings.Contains(line, "molt-agent v") {
+			t.Logf("%s: %s", who, strings.TrimSpace(line))
+		}
+	}
+}
+
 func freePort(t *testing.T) string {
 	t.Helper()
 	l, err := net.Listen("tcp", "127.0.0.1:0")
@@ -196,8 +206,11 @@ func TestSwapWhilePlaying(t *testing.T) {
 			gen2, _ := exec.Command("sh", "-c", "cd "+root+" && find gen-2/world -type f | xargs ls -la --time-style=+%T | awk '{print $6, $5, $7}'").Output()
 			t.Logf("gen-2:\n%s", gen2)
 		}
+		agentLog(t, "old backend", stopped.String())
 		out, _ := exec.Command("docker", "ps", "-aq", "--filter", "name=^"+prefix).Output()
 		for _, id := range strings.Fields(string(out)) {
+			logs, _ := exec.Command("docker", "logs", id).CombinedOutput()
+			agentLog(t, "backend "+id, string(logs))
 			if t.Failed() {
 				logs, _ := exec.Command("docker", "logs", "--tail", "80", id).CombinedOutput()
 				t.Logf("backend %s:\n%s", id, logs)
