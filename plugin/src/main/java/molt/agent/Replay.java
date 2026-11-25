@@ -126,6 +126,10 @@ final class Replay implements Listener {
     public void onJoin(PlayerJoinEvent e) {
         Player p = e.getPlayer();
         Arrival a = arrival(p.getUniqueId(), true);
+        if (a != null && a.entityId() > 0 && p.getEntityId() != a.entityId()) {
+            plugin.getLogger().warning(p.getName() + " arrived as entity " + p.getEntityId() + ", not " + a.entityId()
+                    + ": its client may see itself wrongly until it reconnects");
+        }
         if (a == null || a.actions() == null || a.actions().isEmpty()) {
             return;
         }
