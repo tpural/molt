@@ -122,6 +122,14 @@ final class Replay implements Listener {
         }
     }
 
+    /** A player handed off from the last server didn't just join: nobody's told it did. */
+    @EventHandler(priority = EventPriority.HIGHEST)
+    public void onArrive(PlayerJoinEvent e) {
+        if (arrival(e.getPlayer().getUniqueId(), false) != null) {
+            e.joinMessage(null);
+        }
+    }
+
     @EventHandler(priority = EventPriority.MONITOR)
     public void onJoin(PlayerJoinEvent e) {
         Player p = e.getPlayer();
