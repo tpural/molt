@@ -2,9 +2,11 @@
 // line, and writes one JSON event per line on stdout.
 //   setup   gives itself things, builds, and names a pig nearby
 //   change  changes things again (run while the new server warms up)
+//   frozen  places, breaks, runs a command and walks (run during the freeze)
 //   check   says what it sees: position, inventory, blocks, the pig
 import mineflayer from 'mineflayer'
 import readline from 'node:readline'
+import { Vec3 } from 'vec3'
 
 const [host, port] = process.argv[2].split(':')
 const say = (event, data = {}) => console.log(JSON.stringify({ event, ...data }))
@@ -20,7 +22,7 @@ bot.on('error', (err) => say('error', { why: String(err) }))
 
 const at = (dx, dy, dz) => bot.entity.position.floored().offset(dx, dy, dz)
 const where = (p) => `${p.x} ${p.y} ${p.z}`
-let base
+let base, mark
 async function run (cmd) {
   bot.chat(cmd)
   await sleep(300)
@@ -28,6 +30,7 @@ async function run (cmd) {
 
 async function setup () {
   base = bot.entity.position.floored()
+  await run('/gamemode creative')
   await run('/time set 6000')
   await run('/give molty diamond 5')
   await run(`/setblock ${where(base.offset(2, 0, 0))} gold_block`)
@@ -44,6 +47,24 @@ async function change () {
   await sleep(1000)
   bot.setControlState('forward', false)
   await sleep(500)
+  // A block to break and build on while frozen, with room above it.
+  mark = at(1, 0, 0)
+  await run(`/fill ${where(mark.offset(0, 1, 0))} ${where(mark.offset(0, 3, 0))} air`)
+  await run(`/setblock ${where(mark)} lapis_block`)
+  await run('/give molty dirt 1')
+  await sleep(500)
+  await bot.equip(bot.registry.itemsByName.dirt.id, 'hand') // inventories don't change while frozen
+}
+
+async function frozen () {
+  await bot.activateBlock(bot.blockAt(mark), new Vec3(0, 1, 0))
+  bot.chat(`/setblock ${where(mark.offset(0, 2, 0))} emerald_block`)
+  bot.dig(bot.blockAt(mark), 'ignore').catch(() => {}) // the frozen server may not say it's gone
+  await sleep(200)
+  bot.setControlState('back', true)
+  await sleep(500)
+  bot.setControlState('back', false)
+  await sleep(300)
 }
 
 function count (name) {
@@ -60,6 +81,7 @@ function check () {
     gold: bot.blockAt(base.offset(2, 0, 0))?.name,
     above: bot.blockAt(base.offset(2, 1, 0))?.name,
     chest: bot.blockAt(base.offset(0, 0, 3))?.name,
+    marks: mark && [0, 1, 2].map((dy) => bot.blockAt(mark.offset(0, dy, 0))?.name),
     pig: Boolean(pig),
     time: bot.time.timeOfDay
   }
@@ -73,6 +95,7 @@ bot.once('spawn', async () => {
     try {
       if (line === 'setup') await setup()
       else if (line === 'change') await change()
+      else if (line === 'frozen') await frozen()
       else if (line === 'check') { say('check', check()); continue }
       else if (line === 'quit') { bot.quit(); process.exit(0) }
       say('done', { cmd: line, ...check() })

@@ -30,6 +30,8 @@ type Agent interface {
 	Freeze(ctx context.Context) (agent.Freeze, error)
 	Takeover(ctx context.Context, f agent.Freeze) error
 	Thaw(ctx context.Context) error
+	Handoff(ctx context.Context) (json.RawMessage, error)
+	Arrive(ctx context.Context, h json.RawMessage) error
 }
 
 // Proxy is the part of the proxy the conductor uses.
@@ -75,6 +77,8 @@ type Conductor struct {
 	Agent  func(runner.Backend) Agent
 	Log    *slog.Logger
 	Now    func() time.Time
+	// Frozen, if set, runs while the old backend is frozen: a test plays then.
+	Frozen func()
 
 	lock   sync.Mutex // held while swapping
 	mu     sync.Mutex
@@ -104,10 +108,12 @@ type Report struct {
 	Freeze  time.Duration `json:"freeze"`
 	Moved   int           `json:"moved"`
 	Failed  []string      `json:"failed,omitempty"`
-	// Synced and Removed are the files the freeze copied over, and removed.
-	Synced  int    `json:"synced"`
-	Removed int    `json:"removed"`
-	Error   string `json:"error,omitempty"`
+	// Presynced are the files copied while the new backend waited; Synced
+	// and Removed those the freeze copied over, and removed.
+	Presynced int    `json:"presynced"`
+	Synced    int    `json:"synced"`
+	Removed   int    `json:"removed"`
+	Error     string `json:"error,omitempty"`
 }
 
 // Step is one part of a swap.
@@ -348,6 +354,17 @@ func (c *Conductor) run(ctx context.Context, spec runner.Spec) (r Report, err er
 			return c.Agent(b).Follow(ctx)
 		})
 	}
+	if err == nil {
+		// What changed while the new backend started comes over now, while
+		// everyone still plays, leaving the freeze little to copy.
+		err = step("presync", func() error {
+			if err := ag.SnapshotBegin(ctx); err != nil {
+				return err
+			}
+			r.Presynced, _, err = worlds.Sync(dirA, dirB, c.paths(st.Folders), m)
+			return errors.Join(err, ag.SnapshotEnd(ctx))
+		})
+	}
 	if err != nil {
 		undo(false)
 		return r, err
@@ -360,6 +377,9 @@ func (c *Conductor) run(ctx context.Context, spec runner.Spec) (r Report, err er
 		f, err = ag.Freeze(ctx)
 		return err
 	})
+	if err == nil && c.Frozen != nil {
+		c.Frozen()
+	}
 	if err == nil {
 		err = step("sync", func() error {
 			if len(f.Folders) == 0 {
@@ -373,6 +393,10 @@ func (c *Conductor) run(ctx context.Context, spec runner.Spec) (r Report, err er
 		err = step("takeover", func() error { return c.Agent(b).Takeover(ctx, f) })
 	}
 	if err == nil {
+		_ = step("handoff", func() error {
+			c.handoff(ctx, ag, c.Agent(b))
+			return nil
+		})
 		c.Proxy.Hold()
 		if err = c.Proxy.Serve(b); err == nil {
 			_ = step("move", func() error {
@@ -422,4 +446,20 @@ func (c *Conductor) run(ctx context.Context, spec runner.Spec) (r Report, err er
 		return nil
 	})
 	return r, nil
+}
+
+// handoff passes what players did while the old backend was frozen, and where
+// they are now, to the new one. Without it (an older molt-agent on either)
+// they arrive where they were when it froze.
+func (c *Conductor) handoff(ctx context.Context, from, to Agent) {
+	h, err := from.Handoff(ctx)
+	if err == nil {
+		err = to.Arrive(ctx, h)
+	}
+	switch {
+	case errors.Is(err, agent.ErrUnsupported):
+		c.Log.Info("players arrive where they froze: a backend's molt-agent can't hand off")
+	case err != nil:
+		c.Log.Warn("players arrive where they froze", "err", err)
+	}
 }

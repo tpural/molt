@@ -2,6 +2,7 @@ package conductor
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -98,6 +99,17 @@ func (a fakeAgent) SnapshotEnd(context.Context) error   { return a.do("snapshot 
 func (a fakeAgent) Follow(context.Context) error        { return a.do("follow") }
 func (a fakeAgent) Thaw(context.Context) error          { return a.do("thaw") }
 
+func (a fakeAgent) Handoff(context.Context) (json.RawMessage, error) {
+	if err := a.do("handoff"); err != nil {
+		return nil, fmt.Errorf("%w", agent.ErrUnsupported)
+	}
+	return json.RawMessage(`{"players":[]}`), nil
+}
+
+func (a fakeAgent) Arrive(_ context.Context, h json.RawMessage) error {
+	return a.do("arrive " + string(h))
+}
+
 // Freeze saves a chunk that changed after the snapshot.
 func (a fakeAgent) Freeze(context.Context) (agent.Freeze, error) {
 	_ = os.WriteFile(filepath.Join(a.w.store.Dir(a.gen), "world/r.0.0.mca"), []byte("after"), 0o644)
@@ -174,7 +186,7 @@ func TestSwap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "1 snapshot; 1 snapshot end; start 2 paper:2; 2 follow; 1 freeze; 2 takeover 1 players; hold; serve 2; move; release; drop 1; stop 1"
+	want := "1 snapshot; 1 snapshot end; start 2 paper:2; 2 follow; 1 snapshot; 1 snapshot end; 1 freeze; 2 takeover 1 players; 1 handoff; 2 arrive {\"players\":[]}; hold; serve 2; move; release; drop 1; stop 1"
 	if got := w.took(); got != want {
 		t.Errorf("did\n %s\nwant\n %s", got, want)
 	}
@@ -188,7 +200,7 @@ func TestSwap(t *testing.T) {
 	for _, s := range r.Steps {
 		names = append(names, s.Name)
 	}
-	if !slices.Equal(names, []string{"snapshot", "start", "freeze", "sync", "takeover", "move", "retire"}) {
+	if !slices.Equal(names, []string{"snapshot", "start", "presync", "freeze", "sync", "takeover", "handoff", "move", "retire"}) {
 		t.Errorf("steps %v", names)
 	}
 	// The next swap is generation 3, and only two generations are kept.
@@ -208,10 +220,10 @@ func TestSwapFailures(t *testing.T) {
 		{"start 2 paper:2", "1 snapshot; 1 snapshot end; start 2 paper:2"},
 		{"2 follow", "1 snapshot; 1 snapshot end; start 2 paper:2; 2 follow; stop 2"},
 		// Frozen: it's thawed.
-		{"1 freeze", "1 snapshot; 1 snapshot end; start 2 paper:2; 2 follow; 1 freeze; 1 thaw; stop 2"},
-		{"2 takeover 1 players", "1 snapshot; 1 snapshot end; start 2 paper:2; 2 follow; 1 freeze; 2 takeover 1 players; 1 thaw; stop 2"},
+		{"1 freeze", "1 snapshot; 1 snapshot end; start 2 paper:2; 2 follow; 1 snapshot; 1 snapshot end; 1 freeze; 1 thaw; stop 2"},
+		{"2 takeover 1 players", "1 snapshot; 1 snapshot end; start 2 paper:2; 2 follow; 1 snapshot; 1 snapshot end; 1 freeze; 2 takeover 1 players; 1 thaw; stop 2"},
 		// Nobody could move: players stay on the old backend.
-		{"move", "1 snapshot; 1 snapshot end; start 2 paper:2; 2 follow; 1 freeze; 2 takeover 1 players; hold; serve 2; move; move; move; drop 2; serve 1; release; 1 thaw; stop 2"},
+		{"move", "1 snapshot; 1 snapshot end; start 2 paper:2; 2 follow; 1 snapshot; 1 snapshot end; 1 freeze; 2 takeover 1 players; 1 handoff; 2 arrive {\"players\":[]}; hold; serve 2; move; move; move; drop 2; serve 1; release; 1 thaw; stop 2"},
 	} {
 		t.Run(tc.failAt, func(t *testing.T) {
 			c, w := setup(t)
@@ -232,6 +244,18 @@ func TestSwapFailures(t *testing.T) {
 				t.Error("the report has no error")
 			}
 		})
+	}
+}
+
+// An old backend that can't hand off still swaps: players arrive where they froze.
+func TestSwapWithoutHandoff(t *testing.T) {
+	c, w := setup(t)
+	w.failAt = "1 handoff"
+	if _, err := c.Swap(context.Background(), runner.Spec{Image: "paper:2"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := w.took(); !strings.Contains(got, "1 handoff; hold; serve 2; move") || c.Status().Active.Backend.Gen != 2 {
+		t.Errorf("did %s", got)
 	}
 }
 
