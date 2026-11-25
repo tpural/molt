@@ -1,5 +1,6 @@
 # A Paper server with molt-agent: what molt runs as each generation.
-FROM gradle:9.9.2-jdk25 AS build
+# The jar is the same everywhere: build it once, natively.
+FROM --platform=$BUILDPLATFORM gradle:9.9.2-jdk25 AS build
 ARG VERSION=dev
 WORKDIR /src
 COPY plugin/ ./

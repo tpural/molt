@@ -242,9 +242,13 @@ func TestSwapWhilePlaying(t *testing.T) {
 		t.Errorf("froze for %s", r.Freeze)
 	}
 
-	// Let the bot settle on the new server, then look.
+	// Let the bot settle on the new server, then look. Entities reach a
+	// client after blocks do, so the pig gets a while to show up.
 	time.Sleep(3 * time.Second)
 	got := b.do("check")
+	for end := time.Now().Add(20 * time.Second); !got.Pig && time.Now().Before(end); got = b.do("check") {
+		time.Sleep(time.Second)
+	}
 	if d := math.Hypot(got.Pos[0]-want.Pos[0], got.Pos[2]-want.Pos[2]); d > 0.5 || math.Abs(got.Pos[1]-want.Pos[1]) > 0.5 {
 		t.Errorf("moved %.2f blocks: %v, was %v", d, got.Pos, want.Pos)
 	}

@@ -7,6 +7,7 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
     go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /molt ./cmd/molt
 
-FROM gcr.io/distroless/static:nonroot
+# Gate loads a native library at runtime (vialite, via purego): it needs a C library.
+FROM gcr.io/distroless/base-debian12:nonroot
 COPY --from=build /molt /molt
 ENTRYPOINT ["/molt"]
