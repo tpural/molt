@@ -27,6 +27,8 @@ bot.on('end', (why) => { say('end', { why: String(why) }); process.exit(1) })
 bot.on('kicked', (why) => say('kicked', { why: JSON.stringify(why) }))
 bot.on('messagestr', (m) => say('chat', { why: m }))
 bot.on('error', (err) => say('error', { why: String(err) }))
+bot.on('entityGone', (e) => { if (e.name === 'pig') say('pig-gone', { why: `id ${e.id} at ${e.position}` }) })
+bot.on('entitySpawn', (e) => { if (e.name === 'pig') say('pig-spawn', { why: `id ${e.id} at ${e.position}` }) })
 
 const at = (dx, dy, dz) => bot.entity.position.floored().offset(dx, dy, dz)
 const where = (p) => `${p.x} ${p.y} ${p.z}`
@@ -73,6 +75,7 @@ async function frozen () {
   await sleep(500)
   bot.setControlState('back', false)
   await sleep(300)
+  for (let i = 0; i < 20 && !bot.entity.onGround; i++) await sleep(100) // land where it stopped
 }
 
 function count (name) {

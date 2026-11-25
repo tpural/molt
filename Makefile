@@ -22,4 +22,4 @@ backend:
 # A real swap with a bot playing through it (needs docker and node).
 e2e: backend
 	cd e2e/bot && npm ci --silent
-	cd e2e && go test -tags e2e -v -timeout 20m .
+	cd e2e && go test -count=1 -tags e2e -v -timeout 20m .
