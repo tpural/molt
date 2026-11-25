@@ -146,13 +146,15 @@ func (p *Proxy) Release() {
 }
 
 // Move sends every player who isn't on the active backend to it, and says
-// who couldn't be moved.
-func (p *Proxy) Move(ctx context.Context) (moved int, failed []string) {
+// who couldn't be moved. Players move seamlessly, without a loading screen,
+// when the backend configures their client as the last one did; others switch
+// the usual way.
+func (p *Proxy) Move(ctx context.Context, seamless bool) (moved, smooth int, failed []string) {
 	p.mu.Lock()
 	to := p.active
 	p.mu.Unlock()
 	if to == nil {
-		return 0, nil
+		return 0, 0, nil
 	}
 	var mu sync.Mutex
 	var wg sync.WaitGroup
@@ -161,9 +163,23 @@ func (p *Proxy) Move(ctx context.Context) (moved int, failed []string) {
 			continue
 		}
 		wg.Go(func() {
-			r, err := pl.CreateConnectionRequest(to).Connect(ctx)
+			var r jproxy.ConnectionResult
+			err := jproxy.ErrNotSeamless
+			if seamless {
+				r, err = jproxy.ConnectSeamless(ctx, pl.CreateConnectionRequest(to))
+				if errors.Is(err, jproxy.ErrNotSeamless) {
+					p.log.Info("switching the usual way", "player", pl.Username(), "why", err.Error())
+				}
+			}
+			ok := err == nil && r.Status().Successful()
+			if errors.Is(err, jproxy.ErrNotSeamless) {
+				r, err = pl.CreateConnectionRequest(to).Connect(ctx)
+			}
 			mu.Lock()
 			defer mu.Unlock()
+			if ok {
+				smooth++
+			}
 			switch {
 			case err != nil:
 				failed = append(failed, fmt.Sprintf("%s: %v", pl.Username(), err))
@@ -175,7 +191,7 @@ func (p *Proxy) Move(ctx context.Context) (moved int, failed []string) {
 		})
 	}
 	wg.Wait()
-	return moved, failed
+	return moved, smooth, failed
 }
 
 func reason(r jproxy.ConnectionResult) string {

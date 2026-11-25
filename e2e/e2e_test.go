@@ -50,6 +50,9 @@ type event struct {
 	Above   string    `json:"above"`
 	Chest   string    `json:"chest"`
 	Pig     bool      `json:"pig"`
+	Pigs    int       `json:"pigs"`
+	Left    int       `json:"left"`
+	ID      int       `json:"id"`
 	Marks   []string  `json:"marks"`
 	Time    int64     `json:"time"`
 }
@@ -307,6 +310,17 @@ func TestSwapWhilePlaying(t *testing.T) {
 	}
 	if !got.Pig {
 		t.Error("the named pig didn't come over")
+	}
+	// The switch was seamless: the client never left the world, kept its
+	// entity ID, and sees the pig once.
+	if r.Seamless != 1 || got.Left != 0 {
+		t.Errorf("not seamless: %d of %d moved seamlessly, the client left %d times", r.Seamless, r.Moved, got.Left)
+	}
+	if got.ID != before.ID {
+		t.Errorf("entity ID %d, was %d", got.ID, before.ID)
+	}
+	if got.Pigs > 1 {
+		t.Errorf("the client sees %d named pigs", got.Pigs)
 	}
 	// The time carries on from the freeze (the old server played on while the
 	// new one started), not from the snapshot before it.

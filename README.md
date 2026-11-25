@@ -21,6 +21,13 @@ items and moving things in inventories wait until they're across.
 In the end-to-end test, with a bot building and walking through the swap, the freeze was about a second,
 most of it the move itself.
 
+**No loading screen** when the new server configures clients exactly as the old one did (the same
+Minecraft version, registries and tags: a plugin or config change, not a version upgrade). The proxy
+does the new server's login itself and the client never leaves the world: the old server makes it forget
+what it showed, and the new one keeps each player's entity ID. Otherwise players switch the usual way, with
+a moment of "Loading terrain". This needs a small change to Gate, kept in a fork
+([tpural/gate](https://github.com/tpural/gate), branch `molt-seamless`); see [docs/seamless.md](docs/seamless.md).
+
 ## Parts
 
 - **`molt`** (Go): the proxy, the conductor that runs swaps, and an API. It starts backends as Kubernetes

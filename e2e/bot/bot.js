@@ -15,6 +15,14 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
 let spawns = 0
 bot.on('spawn', () => say('spawn', { n: ++spawns }))
+// Packets a client gets when it's moved the usual way: a seamless switch has none.
+let left = 0
+bot._client.on('packet', (_, meta) => {
+  if (spawns > 0 && ['start_configuration', 'login', 'respawn'].includes(meta.name)) {
+    left++
+    say('left', { why: meta.name })
+  }
+})
 bot.on('end', (why) => { say('end', { why: String(why) }); process.exit(1) })
 bot.on('kicked', (why) => say('kicked', { why: JSON.stringify(why) }))
 bot.on('messagestr', (m) => say('chat', { why: m }))
@@ -72,7 +80,8 @@ function count (name) {
 }
 
 function check () {
-  const pig = Object.values(bot.entities).find((e) => e.name === 'pig' && JSON.stringify(e.metadata ?? '').includes('Molty'))
+  const pigs = Object.values(bot.entities).filter((e) => e.name === 'pig' && JSON.stringify(e.metadata ?? '').includes('Molty'))
+  const pig = pigs[0]
   const p = bot.entity.position
   return {
     pos: [p.x, p.y, p.z],
@@ -83,6 +92,9 @@ function check () {
     chest: bot.blockAt(base.offset(0, 0, 3))?.name,
     marks: mark && [0, 1, 2].map((dy) => bot.blockAt(mark.offset(0, dy, 0))?.name),
     pig: Boolean(pig),
+    pigs: pigs.length,
+    left,
+    id: bot.entity.id,
     time: bot.time.timeOfDay
   }
 }

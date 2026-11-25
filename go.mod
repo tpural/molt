@@ -94,3 +94,5 @@ require (
 	sigs.k8s.io/randfill v1.0.0 // indirect
 	sigs.k8s.io/structured-merge-diff/v6 v6.4.2 // indirect
 )
+
+replace go.minekube.com/gate => github.com/tpural/gate v0.0.0-20261125200648-888730d6d70c

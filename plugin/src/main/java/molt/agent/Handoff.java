@@ -38,12 +38,13 @@ final class Handoff implements Listener {
      */
     enum Role { standby, follower, frozen, leaving, leader }
 
-    record PlayerAt(String uuid, String name, String world, double x, double y, double z) {}
+    record PlayerAt(String uuid, String name, String world, double x, double y, double z, int entityId) {}
 
     record WorldState(String name, long fullTime, boolean storm, boolean thundering,
                       int weatherTicks, int thunderTicks, int clearTicks) {}
 
-    record Freeze(List<PlayerAt> players, List<WorldState> worlds, List<String> folders) {}
+    /** counter: the next entity ID the leader would give out. */
+    record Freeze(List<PlayerAt> players, List<WorldState> worlds, List<String> folders, int counter) {}
 
     /** How far around each player chunks are loaded as they arrive. */
     private static final int PRELOAD = 3;
@@ -52,6 +53,7 @@ final class Handoff implements Listener {
     private final Replay replay;
     private volatile Role role = Role.standby;
     private volatile boolean ready;
+    private volatile boolean forgot;
 
     Handoff(Plugin plugin) {
         this.plugin = plugin;
@@ -98,6 +100,7 @@ final class Handoff implements Listener {
                 "players", Bukkit.getOnlinePlayers().size(),
                 "version", Bukkit.getVersion(),
                 "plugins", List.of(Bukkit.getPluginManager().getPlugins()).stream().map(Plugin::getName).toList(),
+                "seamless", true,
                 "folders", folders()));
     }
 
@@ -194,14 +197,14 @@ final class Handoff implements Listener {
                 for (Player p : Bukkit.getOnlinePlayers()) {
                     var l = p.getLocation();
                     players.add(new PlayerAt(p.getUniqueId().toString(), p.getName(), l.getWorld().getName(),
-                            l.getX(), l.getY(), l.getZ()));
+                            l.getX(), l.getY(), l.getZ(), p.getEntityId()));
                 }
                 List<WorldState> worlds = new ArrayList<>();
                 for (World w : Bukkit.getWorlds()) {
                     worlds.add(new WorldState(w.getName(), w.getFullTime(), w.hasStorm(), w.isThundering(),
                             w.getWeatherDuration(), w.getThunderDuration(), w.getClearWeatherDuration()));
                 }
-                return new Freeze(players, worlds, folders());
+                return new Freeze(players, worlds, folders(), Clients.counter());
             });
         } catch (Exception e) {
             thaw();
@@ -209,16 +212,29 @@ final class Handoff implements Listener {
         }
     }
 
-    /** Stop noting what players do, and say what they did and where they are now. */
+    /**
+     * Stop noting what players do, and say what they did and where they are
+     * now. Their clients forget what this server showed them, so the next can
+     * show it again without a reconnect.
+     */
     Replay.Handover handoff() throws Exception {
         need(Role.frozen);
         role = Role.leaving;
-        return sync(replay::handover);
+        return sync(() -> {
+            Replay.Handover h = replay.handover();
+            Bukkit.getOnlinePlayers().forEach(Clients::forget);
+            forgot = true;
+            return h;
+        });
     }
 
     void thaw() throws Exception {
         replay.clear();
         sync(() -> {
+            if (forgot) {
+                Bukkit.getOnlinePlayers().forEach(p -> Clients.remind(plugin, p));
+                forgot = false;
+            }
             Bukkit.getServerTickManager().setFrozen(false);
             autosave(true);
         });
@@ -236,6 +252,7 @@ final class Handoff implements Listener {
             return;
         }
         need(Role.follower);
+        Clients.above(f.counter()); // before entities are loaded again below
         long t0 = System.nanoTime();
         unloadAll();
         long t1 = System.nanoTime();

@@ -229,6 +229,8 @@ github.com/stretchr/testify v1.11.1/go.mod h1:wZwfW3scLgRK+23gO65QZefKpKQRnfz6sD
 github.com/stretchr/testify v1.12.1 h1:EuwCh5fleGS7H32xRwO3wRGT7DxrDhLAT6FF8MpWDWE=
 github.com/stretchr/testify v1.12.1/go.mod h1:MDEgiDPPsNp5cuIrHPPCyornHKgEVbtFUmoNlxoYthg=
 github.com/tarm/serial v0.0.0-20180830185346-98f6abe2eb07/go.mod h1:kDXzergiv9cbyO7IOYJZWg1U88JhDg3PB6klq9Hg2pA=
+github.com/tpural/gate v0.0.0-20261125200648-888730d6d70c h1:4rt0Bf1hu2C/9xsR8jUaMbS4/NehDXFmzBcULBfHik0=
+github.com/tpural/gate v0.0.0-20261125200648-888730d6d70c/go.mod h1:ah16XPEu94yM3MmVdwN1XlrQR1qnMc8mypvD88ooXgs=
 github.com/viant/assertly v0.4.8/go.mod h1:aGifi++jvCrUaklKEKT0BU95igDNaqkvz+49uaYMPRU=
 github.com/viant/toolbox v0.24.0/go.mod h1:OxMCG57V0PXuIP2HNQrtJf2CjqdmbrOx5EkMILuUhzM=
 github.com/x448/float16 v0.8.4 h1:qLwI1I70+NjRFUR3zs1JPUCgaCXSh3SW62uAKT1mSBM=
@@ -241,8 +243,6 @@ go.minekube.com/common v0.4.0 h1:gIeGWtXYh7cIaCOSEBk1myzN211MCRXAuSZZ2TqStMY=
 go.minekube.com/common v0.4.0/go.mod h1:Nr3bszhOFSBFlglXyqtUmoiLawg+PfzeNEgN00PkK9c=
 go.minekube.com/connect v0.6.3-0.20260803141147-8001cda93b1d h1:2AKO41vrWFDahh0RXCvqCGU235+zKd5jNUJ/UXW0kY0=
 go.minekube.com/connect v0.6.3-0.20260803141147-8001cda93b1d/go.mod h1:Qulqhn32nR3bGEKv+reiw4mlmpVyqlyDpv4EdjMCjQs=
-go.minekube.com/gate v0.82.3 h1:gNYjnlLR2AwKEaBx9nyuGC6fZyr0+DxLJD3skHgS3r8=
-go.minekube.com/gate v0.82.3/go.mod h1:ah16XPEu94yM3MmVdwN1XlrQR1qnMc8mypvD88ooXgs=
 go.minekube.com/vialite v0.3.12 h1:e2T6gv/Awm5+3tOtUroLesS97xWfmr8D2VQRW8W7csc=
 go.minekube.com/vialite v0.3.12/go.mod h1:XGcIWvMiC8C70X3FCUEjaeXRNU5BjLdWYnYl1YZYvjg=
 go.opencensus.io v0.18.0/go.mod h1:vKdFvxhtzZ9onBp9VKHK8z/sRpBMnKAsufL7wlDrCOA=
