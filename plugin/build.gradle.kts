@@ -7,6 +7,8 @@ group = "molt"
 version = providers.gradleProperty("version").getOrElse("dev")
 
 repositories {
+    // Paper's own first: Maven Central rate-limits CI.
+    maven("https://repo.papermc.io/repository/maven-public/")
     mavenCentral()
 }
 
