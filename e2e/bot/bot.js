@@ -27,8 +27,6 @@ bot.on('end', (why) => { say('end', { why: String(why) }); process.exit(1) })
 bot.on('kicked', (why) => say('kicked', { why: JSON.stringify(why) }))
 bot.on('messagestr', (m) => say('chat', { why: m }))
 bot.on('error', (err) => say('error', { why: String(err) }))
-bot.on('entityGone', (e) => { if (e.name === 'pig') say('pig-gone', { why: `id ${e.id} at ${e.position}` }) })
-bot.on('entitySpawn', (e) => { if (e.name === 'pig') say('pig-spawn', { why: `id ${e.id} at ${e.position}` }) })
 
 const at = (dx, dy, dz) => bot.entity.position.floored().offset(dx, dy, dz)
 const where = (p) => `${p.x} ${p.y} ${p.z}`
@@ -45,7 +43,9 @@ async function setup () {
   await run('/give molty diamond 5')
   await run(`/setblock ${where(base.offset(2, 0, 0))} gold_block`)
   await run(`/setblock ${where(base.offset(0, 0, 3))} chest{Items:[{Slot:0b,id:"minecraft:emerald",count:7}]}`)
-  await run(`/summon pig ${where(base.offset(-3, 0, 0))} {CustomName:"Molty",NoAI:1b,PersistenceRequired:1b}`)
+  // Somewhere it can't suffocate, and can't be hurt anyway.
+  await run(`/fill ${where(base.offset(-3, 0, 0))} ${where(base.offset(-3, 1, 0))} air`)
+  await run(`/summon pig ${where(base.offset(-3, 0, 0))} {CustomName:"Molty",NoAI:1b,PersistenceRequired:1b,Invulnerable:1b}`)
 }
 
 async function change () {
