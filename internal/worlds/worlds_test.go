@@ -49,7 +49,8 @@ func TestCopyThenSync(t *testing.T) {
 		}
 	}
 
-	// The new server writes its own files; only the old one's changes come over.
+	// The old server's changes come over, and so does its version of a file
+	// the new server saved over.
 	write(t, filepath.Join(dst, "world/region/r.1.0.mca"), "b, as the new server saved it")
 	later := time.Now().Add(time.Minute)
 	write(t, filepath.Join(src, "world/region/r.0.0.mca"), "a2")
@@ -61,12 +62,12 @@ func TestCopyThenSync(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if copied != 2 || removed != 1 {
+	if copied != 3 || removed != 1 {
 		t.Errorf("copied %d, removed %d", copied, removed)
 	}
 	for p, want := range map[string]string{
 		"world/region/r.0.0.mca": "a2",
-		"world/region/r.1.0.mca": "b, as the new server saved it",
+		"world/region/r.1.0.mca": "b",
 		"world/region/r.2.0.mca": "c",
 	} {
 		if got := read(t, filepath.Join(dst, p)); got != want {
@@ -79,6 +80,9 @@ func TestCopyThenSync(t *testing.T) {
 	// The copy keeps the time, so the next sync doesn't copy it again.
 	if fi, _ := os.Stat(filepath.Join(dst, "world/region/r.0.0.mca")); fi.ModTime().Unix() != later.Unix() {
 		t.Errorf("mtime %v, want %v", fi.ModTime(), later)
+	}
+	if copied, removed, err := Sync(src, dst, []string{"world", "ops.json", "whitelist.json"}, m); err != nil || copied+removed != 0 {
+		t.Errorf("a second sync copied %d, removed %d: %v", copied, removed, err)
 	}
 }
 

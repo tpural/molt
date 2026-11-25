@@ -6,9 +6,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import net.minecraft.server.MinecraftServer;
 import org.bukkit.Bukkit;
 import org.bukkit.Chunk;
@@ -29,13 +27,16 @@ import org.bukkit.event.player.PlayerCommandPreprocessEvent;
 import org.bukkit.event.player.PlayerDropItemEvent;
 import org.bukkit.event.player.PlayerInteractEntityEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
-import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.plugin.Plugin;
 
 /** The hand-off: this server's role, and what each step does to it. */
 final class Handoff implements Listener {
-    /** standby: started, refusing players. follower: frozen, waiting. frozen: a leader handing off. */
-    enum Role { standby, follower, frozen, leader }
+    /**
+     * standby: started, refusing players. follower: frozen, waiting. frozen: a
+     * leader handing off, noting what players do. leaving: handed off, waiting
+     * for players to go.
+     */
+    enum Role { standby, follower, frozen, leaving, leader }
 
     record PlayerAt(String uuid, String name, String world, double x, double y, double z) {}
 
@@ -44,15 +45,21 @@ final class Handoff implements Listener {
 
     record Freeze(List<PlayerAt> players, List<WorldState> worlds, List<String> folders) {}
 
-    /** How far around each player chunks are loaded before they arrive. */
+    /** How far around each player chunks are loaded as they arrive. */
     private static final int PRELOAD = 3;
 
     private final Plugin plugin;
+    private final Replay replay;
     private volatile Role role = Role.standby;
     private volatile boolean ready;
 
     Handoff(Plugin plugin) {
         this.plugin = plugin;
+        this.replay = new Replay(plugin);
+    }
+
+    Replay replay() {
+        return replay;
     }
 
     void ready() {
@@ -169,6 +176,7 @@ final class Handoff implements Listener {
     /** Freeze the leader for a hand-off: everything stops and is saved. */
     Freeze freeze() throws Exception {
         need(Role.leader);
+        replay.clear();
         role = Role.frozen;
         try {
             return sync(() -> {
@@ -194,7 +202,15 @@ final class Handoff implements Listener {
         }
     }
 
+    /** Stop noting what players do, and say what they did and where they are now. */
+    Replay.Handover handoff() throws Exception {
+        need(Role.frozen);
+        role = Role.leaving;
+        return sync(replay::handover);
+    }
+
     void thaw() throws Exception {
+        replay.clear();
         sync(() -> {
             Bukkit.getServerTickManager().setFrozen(false);
             autosave(true);
@@ -213,7 +229,9 @@ final class Handoff implements Listener {
             return;
         }
         need(Role.follower);
+        long t0 = System.nanoTime();
         unloadAll();
+        long t1 = System.nanoTime();
         sync(() -> {
             for (World w : Bukkit.getWorlds()) {
                 Regions.forget(((CraftWorld) w).getHandle());
@@ -221,12 +239,16 @@ final class Handoff implements Listener {
             apply(f.worlds());
             return null;
         });
+        long t2 = System.nanoTime();
         preload(f.players());
+        long t3 = System.nanoTime();
         sync(() -> {
             autosave(true);
             Bukkit.getServerTickManager().setFrozen(false);
         });
         role = Role.leader;
+        plugin.getLogger().info(String.format("took over: unloading %dms, rereading %dms, preloading %dms, starting %dms",
+                (t1 - t0) / 1_000_000, (t2 - t1) / 1_000_000, (t3 - t2) / 1_000_000, (System.nanoTime() - t3) / 1_000_000));
     }
 
     private static void apply(List<WorldState> worlds) {
@@ -274,13 +296,16 @@ final class Handoff implements Listener {
         }
     }
 
-    /** Load chunks around where players will be, waiting a few seconds at most. */
+    /**
+     * Start loading chunks around where players will be, those they stand in
+     * first. They load while players connect, and are held a while so they're
+     * still there when players arrive.
+     */
     private void preload(List<PlayerAt> players) throws Exception {
         if (players == null || players.isEmpty()) {
             return;
         }
-        List<CompletableFuture<Chunk>> loads = sync(() -> {
-            List<CompletableFuture<Chunk>> out = new ArrayList<>();
+        sync(() -> {
             for (PlayerAt p : players) {
                 World w = Bukkit.getWorld(p.world());
                 if (w == null) {
@@ -290,47 +315,86 @@ final class Handoff implements Listener {
                 int cz = (int) Math.floor(p.z()) >> 4;
                 for (int x = -PRELOAD; x <= PRELOAD; x++) {
                     for (int z = -PRELOAD; z <= PRELOAD; z++) {
-                        out.add(w.getChunkAtAsync(cx + x, cz + z));
+                        w.getChunkAtAsync(cx + x, cz + z, true, x == 0 && z == 0)
+                                .thenAccept(c -> c.addPluginChunkTicket(plugin));
                     }
                 }
             }
-            return out;
+            Bukkit.getScheduler().runTaskLater(plugin, () -> Bukkit.getWorlds().forEach(w -> w.removePluginChunkTickets(plugin)), 30 * 20);
         });
-        try {
-            CompletableFuture.allOf(loads.toArray(CompletableFuture[]::new)).get(3, TimeUnit.SECONDS);
-        } catch (TimeoutException e) {
-            plugin.getLogger().info("players arrive before all their chunks loaded");
-        }
     }
 
-    // While frozen for a hand-off, nothing players do counts: it wouldn't be handed over.
+    // While frozen for a hand-off, players move freely, and what they break,
+    // place and run is noted and done again on the next server. Anything else
+    // would be lost, so it doesn't happen. Once handed off, nothing counts.
+
+    private boolean handing() {
+        return role == Role.frozen || role == Role.leaving;
+    }
 
     private void stop(Cancellable e) {
-        if (role == Role.frozen) {
+        if (handing()) {
             e.setCancelled(true);
         }
     }
 
-    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
-    public void onMove(PlayerMoveEvent e) {
-        if (role == Role.frozen && e.hasChangedPosition()) {
-            e.setCancelled(true);
-        }
-    }
-
-    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
-    public void onBreak(BlockBreakEvent e) {
-        stop(e);
-    }
-
-    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
-    public void onPlace(BlockPlaceEvent e) {
-        stop(e);
-    }
-
+    /** Breaking and placing go ahead, but nothing else a click would do. */
     @EventHandler(priority = EventPriority.LOWEST)
     public void onInteract(PlayerInteractEvent e) {
-        stop(e);
+        if (role == Role.leaving) {
+            e.setCancelled(true);
+        } else if (role == Role.frozen) {
+            switch (e.getAction()) {
+                case LEFT_CLICK_BLOCK, LEFT_CLICK_AIR -> {} // breaking
+                case RIGHT_CLICK_BLOCK -> {
+                    // Placing, unless the click would open or flip what it's on.
+                    boolean placing = e.getItem() != null && e.getItem().getType().isBlock()
+                            && (e.getPlayer().isSneaking() || !e.getClickedBlock().getType().isInteractable());
+                    if (!placing) {
+                        e.setCancelled(true);
+                    }
+                }
+                default -> e.setCancelled(true);
+            }
+        }
+    }
+
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
+    public void onBreakEarly(BlockBreakEvent e) {
+        if (role == Role.leaving) {
+            e.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onBreak(BlockBreakEvent e) {
+        if (role == Role.frozen) {
+            replay.broke(e.getPlayer(), e.getBlock());
+        }
+    }
+
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
+    public void onPlaceEarly(BlockPlaceEvent e) {
+        if (role == Role.leaving) {
+            e.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onPlace(BlockPlaceEvent e) {
+        if (role == Role.frozen) {
+            replay.placed(e.getPlayer(), e.getBlockPlaced(), e.getHand());
+        }
+    }
+
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
+    public void onCommand(PlayerCommandPreprocessEvent e) {
+        if (handing()) {
+            e.setCancelled(true);
+            if (role == Role.frozen) {
+                replay.ran(e.getPlayer(), e.getMessage());
+            }
+        }
     }
 
     @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
@@ -350,11 +414,6 @@ final class Handoff implements Listener {
 
     @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
     public void onHit(EntityDamageByEntityEvent e) {
-        stop(e);
-    }
-
-    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
-    public void onCommand(PlayerCommandPreprocessEvent e) {
         stop(e);
     }
 

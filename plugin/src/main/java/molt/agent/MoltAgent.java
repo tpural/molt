@@ -28,6 +28,7 @@ public final class MoltAgent extends JavaPlugin implements Listener {
         handoff = new Handoff(this);
         Bukkit.getPluginManager().registerEvents(this, this);
         Bukkit.getPluginManager().registerEvents(handoff, this);
+        Bukkit.getPluginManager().registerEvents(handoff.replay(), this);
         try {
             api = new Api(this, handoff, token, port);
         } catch (IOException e) {

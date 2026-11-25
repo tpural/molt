@@ -49,6 +49,11 @@ final class Api {
             h.takeover(GSON.fromJson(new InputStreamReader(ex.getRequestBody(), StandardCharsets.UTF_8), Handoff.Freeze.class));
             return null;
         });
+        route("POST", "/handoff", ex -> h.handoff());
+        route("POST", "/arrive", ex -> {
+            h.replay().expect(GSON.fromJson(new InputStreamReader(ex.getRequestBody(), StandardCharsets.UTF_8), Replay.Handover.class));
+            return null;
+        });
         route("POST", "/thaw", ex -> {
             h.thaw();
             return null;

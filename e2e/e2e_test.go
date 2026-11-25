@@ -50,6 +50,7 @@ type event struct {
 	Above   string    `json:"above"`
 	Chest   string    `json:"chest"`
 	Pig     bool      `json:"pig"`
+	Marks   []string  `json:"marks"`
 	Time    int64     `json:"time"`
 }
 
@@ -90,37 +91,54 @@ func startBot(t *testing.T, addr string) *bot {
 	return b
 }
 
-// await waits for an event, failing on the bot leaving.
-func (b *bot) await(name string, within time.Duration) event {
-	b.t.Helper()
+// wait waits for an event, saying if the bot left or failed instead.
+func (b *bot) wait(name string, within time.Duration) (event, error) {
 	deadline := time.After(within)
 	for {
 		select {
 		case e, ok := <-b.events:
 			if !ok || e.Event == "end" {
-				b.t.Fatalf("the bot was disconnected waiting for %s: %s", name, e.Why)
+				return e, fmt.Errorf("the bot was disconnected waiting for %s: %s", name, e.Why)
 			}
 			if e.Event == "error" {
-				b.t.Fatalf("the bot: %s: %s", e.Cmd, e.Why)
+				return e, fmt.Errorf("the bot: %s: %s", e.Cmd, e.Why)
 			}
 			if e.Event == name {
-				return e
+				return e, nil
 			}
 		case <-deadline:
-			b.t.Fatalf("no %s from the bot in %s", name, within)
+			return event{}, fmt.Errorf("no %s from the bot in %s", name, within)
 		}
 	}
 }
 
-func (b *bot) do(cmd string) event {
+func (b *bot) await(name string, within time.Duration) event {
 	b.t.Helper()
-	if _, err := fmt.Fprintln(b.in, cmd); err != nil {
+	e, err := b.wait(name, within)
+	if err != nil {
 		b.t.Fatal(err)
 	}
-	if cmd == "check" {
-		return b.await("check", time.Minute)
+	return e
+}
+
+// try runs a command, from any goroutine.
+func (b *bot) try(cmd string) (event, error) {
+	if _, err := fmt.Fprintln(b.in, cmd); err != nil {
+		return event{}, err
 	}
-	return b.await("done", time.Minute)
+	if cmd == "check" {
+		return b.wait("check", time.Minute)
+	}
+	return b.wait("done", time.Minute)
+}
+
+func (b *bot) do(cmd string) event {
+	b.t.Helper()
+	e, err := b.try(cmd)
+	if err != nil {
+		b.t.Fatal(err)
+	}
+	return e
 }
 
 // offlineUUID is a name's UUID when nobody checks it with Mojang.
@@ -221,6 +239,16 @@ func TestSwapWhilePlaying(t *testing.T) {
 
 	// A swap that adds a plugin, while the bot keeps changing things.
 	next := conductor.Change{Env: map[string]string{"PLUGINS": chunky}}.Apply(spec)
+	// During the freeze the bot builds, digs, runs a command and walks: it all
+	// happens again on the new server.
+	var want event
+	var played time.Duration
+	var frozenErr error
+	c.Frozen = func() {
+		t0 := time.Now()
+		want, frozenErr = b.try("frozen")
+		played = time.Since(t0)
+	}
 	if err := c.Begin(ctx, next); err != nil {
 		t.Fatal(err)
 	}
@@ -230,16 +258,19 @@ func TestSwapWhilePlaying(t *testing.T) {
 		}
 		return c.Status().Swapping == "start"
 	})
-	want := b.do("change")
+	before := b.do("change")
 	changed := time.Now()
 	until(t, "the swap to finish", func() bool { return c.Status().Swapping == "" })
+	if frozenErr != nil {
+		t.Fatal(frozenErr)
+	}
 	r := c.Status().Last
-	t.Logf("swap: %+v", *r)
+	t.Logf("swap: %+v (the bot played %s of the freeze)", *r, played)
 	if r.Error != "" || r.Moved != 1 {
 		t.Fatalf("swap: %+v", *r)
 	}
-	if r.Freeze > 5*time.Second {
-		t.Errorf("froze for %s", r.Freeze)
+	if r.Freeze-played > 3*time.Second {
+		t.Errorf("froze for %s besides the bot's %s", r.Freeze-played, played)
 	}
 
 	// Let the bot settle on the new server, then look. Entities reach a
@@ -255,6 +286,9 @@ func TestSwapWhilePlaying(t *testing.T) {
 	if got.Diamond != 5 || got.Iron != 3 {
 		t.Errorf("inventory: %d diamonds, %d iron", got.Diamond, got.Iron)
 	}
+	if !slices.Equal(got.Marks, []string{"air", "dirt", "emerald_block"}) {
+		t.Errorf("what the bot did while frozen: %v, want air, dirt, emerald_block", got.Marks)
+	}
 	if got.Gold != "air" || got.Above != "diamond_block" || got.Chest != "chest" {
 		t.Errorf("blocks: gold spot %s, above %s, chest %s", got.Gold, got.Above, got.Chest)
 	}
@@ -263,7 +297,7 @@ func TestSwapWhilePlaying(t *testing.T) {
 	}
 	// The time carries on from the freeze (the old server played on while the
 	// new one started), not from the snapshot before it.
-	if lo, hi := want.Time+int64(r.Steps[1].Took.Seconds()*20)-100, want.Time+int64(time.Since(changed).Seconds()*20)+100; got.Time < lo || got.Time > hi {
+	if lo, hi := before.Time+int64(r.Steps[1].Took.Seconds()*20)-100, before.Time+int64(time.Since(changed).Seconds()*20)+100; got.Time < lo || got.Time > hi {
 		t.Errorf("time of day %d, want %d to %d", got.Time, lo, hi)
 	}
 	st, err := agent.New(c.Status().Active.Backend.Agent, "e2e-agent").State(ctx)

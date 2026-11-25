@@ -9,12 +9,17 @@ Plugins can't be loaded into a running server safely, so molt swaps the whole se
 1. **Players connect to molt**, an always-on proxy ([Gate](https://github.com/minekube/gate)), never to a
    server directly.
 2. **A new server starts beside the old one**, on a copy of the world, while everyone keeps playing.
-3. **The old server freezes**: it stops the world and saves everything. molt copies only the files that
-   changed since the copy (usually a few dozen) to the new server, which rereads them.
+   Once it's up, what changed meanwhile is copied over too.
+3. **The old server freezes**: it stops the world and saves everything. molt copies the few files that
+   changed in the last moment to the new server, which rereads them.
 4. **The proxy moves everyone across** and the old server stops.
 
-In the end-to-end test, with a bot building and walking while the new server started, the freeze was about
-2 seconds.
+During the freeze players can still walk, break and place blocks, and run commands: the old server notes
+what they do and the new one does it again as they arrive, so nothing snaps back. Opening chests, using
+items and moving things in inventories wait until they're across.
+
+In the end-to-end test, with a bot building and walking through the swap, the freeze was about a second,
+most of it the move itself.
 
 ## Parts
 
@@ -67,12 +72,12 @@ If anything fails before players move, the old server thaws and carries on, and 
 
 Everything in the worlds' folders (blocks, chests and machines, mobs, players and their inventories, world
 data), the time and weather, and `ops.json`, the whitelist and the ban lists. Players arrive where they
-were.
+were at the end of the freeze.
 
 Not yet:
 - **Plugins' own data** (`plugins/<name>/`): each server starts with its own.
 - **World-wide state the new server read when it started** (scoreboards, raids, game rules, the world
-  border) is from the copy, about a minute before the swap.
+  border) is from the first copy, before the new server started.
 - **Restarting molt itself** drops players' connections. The backend keeps running and the new molt adopts
   it.
 

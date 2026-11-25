@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -56,6 +57,9 @@ type Freeze struct {
 	Folders []string `json:"folders"`
 }
 
+// ErrUnsupported is a call an older molt-agent doesn't have.
+var ErrUnsupported = errors.New("molt-agent doesn't support this")
+
 // Client is one backend's agent.
 type Client struct {
 	URL   string
@@ -90,6 +94,9 @@ func (c *Client) do(ctx context.Context, method, path string, body, out any) err
 		return err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return fmt.Errorf("%s %s: %w", method, path, ErrUnsupported)
+	}
 	if resp.StatusCode/100 != 2 {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		return fmt.Errorf("%s %s: %s: %s", method, path, resp.Status, strings.TrimSpace(string(b)))
@@ -137,4 +144,17 @@ func (c *Client) Takeover(ctx context.Context, f Freeze) error {
 // Thaw undoes a freeze.
 func (c *Client) Thaw(ctx context.Context) error {
 	return c.do(ctx, http.MethodPost, "/thaw", struct{}{}, nil)
+}
+
+// Handoff ends a frozen leader's part: it stops taking players' actions, and
+// says what they did while frozen and where they are, for the next leader.
+func (c *Client) Handoff(ctx context.Context) (json.RawMessage, error) {
+	var h json.RawMessage
+	return h, c.do(ctx, http.MethodPost, "/handoff", struct{}{}, &h)
+}
+
+// Arrive tells the new leader what the old one handed off, to apply as each
+// player arrives.
+func (c *Client) Arrive(ctx context.Context, h json.RawMessage) error {
+	return c.do(ctx, http.MethodPost, "/arrive", h, nil)
 }

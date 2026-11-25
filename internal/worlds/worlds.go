@@ -69,6 +69,14 @@ type File struct {
 	ModTime time.Time
 }
 
+func (f File) is(info fs.FileInfo) bool {
+	return f.Size == info.Size() && f.ModTime.Equal(info.ModTime())
+}
+
+// changed marks a file that changed while it was copied: the next sync
+// copies it again.
+var changed = File{Size: -1}
+
 // Manifest is what was copied, by path relative to the server directory.
 type Manifest map[string]File
 
@@ -80,24 +88,25 @@ func skip(name string) bool { return name == "session.lock" }
 func Copy(src, dst string, folders []string) (Manifest, error) {
 	m := Manifest{}
 	err := walk(src, folders, func(rel string, info fs.FileInfo) error {
-		m[rel] = File{info.Size(), info.ModTime()}
-		return copyFile(filepath.Join(src, rel), filepath.Join(dst, rel), info)
+		return copyTo(src, dst, rel, info, m)
 	})
 	return m, err
 }
 
-// Sync copies to dst the files under folders in src that are new or changed
-// since m, and removes from dst those removed from src. Files are replaced by
-// rename, so a reader holding the old file open never sees it half-written.
+// Sync brings dst up to date with src: it copies the files under folders that
+// are new or changed in src since m, or that dst changed itself, and removes
+// from dst those removed from src. m is updated to what dst now has, so syncs
+// can follow one another. Files are replaced by rename, so a reader holding
+// the old file open never sees it half-written.
 func Sync(src, dst string, folders []string, m Manifest) (copied, removed int, err error) {
 	seen := map[string]bool{}
 	err = walk(src, folders, func(rel string, info fs.FileInfo) error {
 		seen[rel] = true
-		if was, ok := m[rel]; ok && was.Size == info.Size() && was.ModTime.Equal(info.ModTime()) {
+		if was, ok := m[rel]; ok && was.is(info) && unchanged(filepath.Join(dst, rel), was) {
 			return nil
 		}
 		copied++
-		return copyFile(filepath.Join(src, rel), filepath.Join(dst, rel), info)
+		return copyTo(src, dst, rel, info, m)
 	})
 	if err != nil {
 		return copied, removed, err
@@ -109,9 +118,33 @@ func Sync(src, dst string, folders []string, m Manifest) (copied, removed int, e
 		if err := os.Remove(filepath.Join(dst, rel)); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return copied, removed, err
 		}
+		delete(m, rel)
 		removed++
 	}
 	return copied, removed, nil
+}
+
+// unchanged says if the copy at path is still as it was copied: the new
+// server may have saved over it.
+func unchanged(path string, was File) bool {
+	info, err := os.Stat(path)
+	return err == nil && was.is(info)
+}
+
+// copyTo copies one file and notes it in m: as it was before copying, or as
+// changed if it was written meanwhile.
+func copyTo(src, dst, rel string, info fs.FileInfo, m Manifest) error {
+	if err := copyFile(filepath.Join(src, rel), filepath.Join(dst, rel), info); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil // removed since the walk saw it
+		}
+		return err
+	}
+	m[rel] = File{info.Size(), info.ModTime()}
+	if after, err := os.Stat(filepath.Join(src, rel)); err != nil || !m[rel].is(after) {
+		m[rel] = changed
+	}
+	return nil
 }
 
 func walk(root string, folders []string, f func(rel string, info fs.FileInfo) error) error {
